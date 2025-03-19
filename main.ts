@@ -1,134 +1,168 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { Plugin, MarkdownView, MarkdownPostProcessorContext, getLinkpath, TFile, normalizePath } from 'obsidian';
 
-// Remember to rename these classes and interfaces!
+export default class ImageComparisonSliderPlugin extends Plugin {
+  private filePathCache: Map<string, string> = new Map();
+  private markdownCache: Map<string, string> = new Map();
 
-interface MyPluginSettings {
-	mySetting: string;
-}
+  // Entry Point
+  async onload() {
+    //console.log("Image Comparison Slider plugin loaded!");
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
-}
+    this.registerMarkdownCodeBlockProcessor("img-compare", (source, el, ctx) => { // ❗ Parse Code Block
+      this.createMediaSlider(source, el, ctx);
+    });
+    
+  }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+  private createMediaSlider(source: string, el: HTMLElement, ctx: MarkdownPostProcessorContext) {
+		const metadataMatch = source.match(/---\n([\s\S]+?)\n---/);
+		const mediaContent = source.replace(/---\n[\s\S]+?\n---/, "").trim(); // Reads for ![[picture.png]] files
+		const mediaFiles = mediaContent.split("\n").map(line => line.trim()).filter(Boolean);
 
-	async onload() {
-		await this.loadSettings();
-
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
+    const validFiles = mediaFiles.map(file => {
+			let match = file.match(/!?\[\[(.*?)\]\]/);
+			if (!match) {
+				match = file.match(/!\[\]\((.*?)\)/);
 			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+			return match ? match[1] : "";
+		}).filter(Boolean);
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
+    //console.log("Valid Files: " + validFiles);
+    //console.log(validFiles.length);
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+    const imageWrapper = el.createDiv("image-wrapper");
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
+    // Automatically select first image and second image
+    if (validFiles.length === 0) return;
 
-	onunload() {
+    if (validFiles.length < 2) {
+      const img = imageWrapper.createEl("img", { attr: {src: this.getMediaSource(validFiles[0]) }, cls: "bottom"}); // src: filepath
+      return;
+    }
 
-	}
+    // Get Obsidain local file paths
+    //const filepath = this.getMediaSource('placeholder1.jpg'); // 'templar_knight.png' , 'placeholder1.jpg', etc.
+    //const filepath2 = this.getMediaSource('placeholder2.jpg');
+    // console.log("Final URL: " + filepath);
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
+    // Element to render images into
+    const img_before = imageWrapper.createEl("img", { attr: {src: this.getMediaSource(validFiles[0]) }, cls: "bottom"}); // src: filepath
+    const img_after = imageWrapper.createEl("img", {attr: {src: this.getMediaSource(validFiles[1])}, cls: "top"});
+    const slider = imageWrapper.createEl("div", {cls: "slider"});
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+    // Create Elements for buttons, if more than 2 images loaded.
+    if (validFiles.length > 2) {
+      const buttonWrapper = el.createDiv("button-wrapper");
+      const btn_before = buttonWrapper.createEl("select", {cls: "button-left"});
+      const btn_after = buttonWrapper.createEl("select", {cls: "button-right"});
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+      btn_before.addEventListener("change", (evt: Event) => {
+        const selectedValue = (evt.target as HTMLSelectElement).value;
+        img_after.src=this.getMediaSource(selectedValue);
+        //console.log("Selected Value: ", selectedValue);
+      })
+      btn_after.addEventListener("change", (evt: Event) => {
+        const selectedValue = (evt.target as HTMLSelectElement).value;
+        img_before.src=this.getMediaSource(selectedValue);
+        //console.log("Selected Value: ", selectedValue);
+      })
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+      validFiles.forEach(file => {
+        const newOption = buttonWrapper.createEl('option');
+        newOption.value = file;
+        newOption.text = file;
+        btn_before.appendChild(newOption);
+        btn_before.selectedIndex = 1;
+      })
+      validFiles.forEach(file => {
+        const newOption = buttonWrapper.createEl('option');
+        newOption.value = file;
+        newOption.text = file;
+        btn_after.appendChild(newOption);
+      })       
+    }
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+    //img.classList.add("slider-media");
+    // const img = mediaWrapper.createEl("img", { attr: { src: filepath } });
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+    let isDragging = false;
+    let touchStartX = 0;
+    imageWrapper.addEventListener("mousedown", (evt: MouseEvent) => {
+      evt.preventDefault();
+      console.log("Mouse down");
+      // Get the mouse position relative to the element
+      isDragging = true;
+      const pos = 100-((evt.offsetX / imageWrapper.offsetWidth) * 100);
+      console.log(pos);
+      img_after.style.maskImage = 'linear-gradient(to left, transparent, transparent ' + pos + '%, black ' + pos + '%, black)';
+      img_after.style.webkitMaskImage = 'linear-gradient(to left, transparent, transparent '+pos+'%, black ' +pos+'%, black)';
+      slider.style.right = pos+'%';
+    });
+    imageWrapper.addEventListener("mouseup", (evt: MouseEvent) => {
+      evt.preventDefault();
+      console.log("Mouse Up");
+      isDragging = false;
+    });
+    imageWrapper.addEventListener("mousemove", (evt: MouseEvent) => {
+      if (isDragging) {
+        // Move the slider and offset the images
 
-	display(): void {
-		const {containerEl} = this;
+        // position the slider
+        const pos = 100-((evt.offsetX / imageWrapper.offsetWidth) * 100);
+        console.log(pos);
+        img_after.style.maskImage = 'linear-gradient(to left, transparent, transparent ' + pos + '%, black ' + pos + '%, black)';
+        img_after.style.webkitMaskImage = 'linear-gradient(to left, transparent, transparent '+pos+'%, black ' +pos+'%, black)';
+        slider.style.right = pos+'%';
+      }
+    });
+    imageWrapper.addEventListener("mouseleave", (evt: MouseEvent) => {
+      isDragging = false;
+    });
+    imageWrapper.addEventListener("touchstart", (evt: TouchEvent) => {
+      evt.preventDefault();
+    });
+    imageWrapper.addEventListener("touchend", (evt: TouchEvent) => {
+      evt.preventDefault();
+    });
+  }
 
-		containerEl.empty();
+  onunload() {
+    console.log("Image Comparison Slider plugin unloaded!");
+  }
 
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+  // --- Resource Helpers ---
+  private getCachedResourcePath(fileName: string): string {
+    if (this.filePathCache.has(fileName)) {
+      return this.filePathCache.get(fileName)!;
+    }
+    const path = this.app.vault.adapter.getResourcePath(fileName);
+    this.filePathCache.set(fileName, path);
+    return path;
+  }
+
+  /**
+ * Get a file or folder inside the vault at the given path. To check if the return type is
+ * a file, use `instanceof TFile`. To check if it is a folder, use `instanceof TFolder`.
+ * @param filename - placeholder1.jpg
+ * @returns 
+ */
+  private getMediaSource(fileName: string): string {
+    if (fileName.startsWith("http://") || fileName.startsWith("https://")) {
+      return fileName;
+    }
+    let file = this.app.vault.getAbstractFileByPath(fileName);
+    if (!file) {
+      const matchingFiles = this.app.vault.getFiles().filter(
+        f => f.name.toLowerCase() === fileName.toLowerCase()
+      );
+      if (matchingFiles.length > 0) {
+        fileName = matchingFiles[0].path;
+      } else {
+        console.error("File not found in vault:", fileName);
+      }
+    }
+    return this.getCachedResourcePath(fileName);
+  }
 }

@@ -1,0 +1,7 @@
+// https://github.com/ElmoNeedsArson/Obsidian-3D-embed/blob/master/src/main.ts
+		this.registerMarkdownCodeBlockProcessor('IMG-COMP', (source, el, ctx) => {
+			// Instantiate new instance
+			// github.com/yomotsu/comparison-slider
+			//	const comp_slider = new ImageCompSlide();
+
+		});
