@@ -37,7 +37,7 @@
   position: absolute;
   top: 0;
   right: 50%;
-  width: 1.5px; /* Very thin width */
+  width: 2px; /* Very thin width */
   height: 100%;
   background-color: rgb(54, 54, 54);
   pointer-events: none; /* Allow clicks and mouse events to pass through */
